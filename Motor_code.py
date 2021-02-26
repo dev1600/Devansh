@@ -48,21 +48,30 @@ BUTTON_PAD = 15
 axis = {}
 button = {}
 
+ARM_FLAG=0
+
 
 class CameraThread(QThread):
     changePixmap = pyqtSignal(QImage)
 
+    def __init__(self,name):
+        # super(CameraThread,self).__init__()
+        QThread.__init__(self, parent=None)
+        
+        self.name=name
+
     def TakeScreenshot(self):
         ps4.logic = 1
 
-    def setFullScreen(self):
-        if ps4.full_screen == 1:
-            ps4.full_screen = 0
-        else:
-            ps4.full_screen = 1
+    # def setFullScreen(self):
+    #     if ps4.full_screen == 1:
+    #         ps4.full_screen = 0
+    #     else:
+    #         ps4.full_screen = 1
 
     def run(self):
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(self.name)
+        
         value = 0
         while True:
             ret, frame = cap.read()
@@ -74,10 +83,12 @@ class CameraThread(QThread):
                 convertToQtFormat = QImage(
                     rgbImage.data, w, h, bytesPerLine, QImage.Format_RGB888)
                 
-                if ps4.full_screen == 0:
-                    p = convertToQtFormat.scaled(720,1280, Qt.KeepAspectRatio)
-                else:
-                    p = convertToQtFormat.scaled(620, 480, Qt.KeepAspectRatio)
+                # if ps4.full_screen == 0:
+                #     p = convertToQtFormat.scaled(720,1280, Qt.KeepAspectRatio)
+                # else:
+                #     p = convertToQtFormat.scaled(620, 480, Qt.KeepAspectRatio)
+                p = convertToQtFormat.scaled(620, 480, Qt.KeepAspectRatio)
+                
 
                 self.changePixmap.emit(p)
                 if ps4.logic == 1:
@@ -92,13 +103,18 @@ class ps4(QMainWindow):
     
     logic = 0
     full_screen = 0
-    def __init__(self):
+    def __init__(self):      
         super().__init__()
         pygame.init()
         pygame.joystick.init()
         comm = Comm()
         self.speak.connect(self.setTerminal)
-
+        global gear
+        gear=0
+        
+        global ARM_FLAG
+        ARM_FLAG=0
+        
         self.controller = pygame.joystick.Joystick(0)
         self.controller.init()
         global a
@@ -133,80 +149,201 @@ class ps4(QMainWindow):
                     hat[event.hat] = event.value
 
             self.quit = button[BUTTON_PS]
+            # if(self.quit==True):
+            #     self.SendMsg("m"+'0'+"s"+"08000"+"f"+"08000"+"n")
             self.display()
 
+    def debounce(self,b):
+        x=0
+        while(x<1000000/2):
+            if(button[b] != True):
+                return False
+            x+=1
+        
+        return True
+    
+    def getGear(self):
+        global gear
+        if(self.debounce(BUTTON_R1)==True and gear<9):
+                gear += 1
+            
+        if(self.debounce(BUTTON_L1)==True and gear>0): 
+                gear -= 1
+    
+    def getValueXJoy(self,stick):
+        return  str(int(axis[stick]*8000+8000))
+    
+    def getValueYJoy(self,stick):
+        return  str(int(-1*axis[stick]*8000+8000))
+    
+    
+    def ArmMode(self):
+        
+        x_r=self.getValueXJoy(AXIS_RIGHT_STICK_X)
+        y_r=self.getValueYJoy(AXIS_RIGHT_STICK_Y)
+            
+        x_l=self.getValueXJoy(AXIS_LEFT_STICK_X)
+        y_l=self.getValueYJoy(AXIS_LEFT_STICK_Y)
+        
+        x_r=x_r.zfill(5)
+        y_r=y_r.zfill(5)
+            
+        x_l=x_l.zfill(5)
+        y_l=y_l.zfill(5)
+        
+        roll="00000"
+        pitch="00000"
+        swivel="00000"
+        gripper="00000"
+            # print(x)
+        # self.getGear()
+
+            # For Swivel 
+        
+        if(button[BUTTON_L1]==True):
+            swivel="16000"
+                
+        elif(button[BUTTON_R1]==True):
+            swivel="16001"
+            
+        else:
+            swivel="00000"
+            
+            # For Roll 
+        if(button[LEFT_ARROW]==True):
+            roll="16000"
+            
+        elif(button[RIGHT_ARROW]==True):
+            roll="16001"
+            
+        else:
+            roll="00000"
+                
+            # For Pitch
+        if(button[UP_ARROW]==True):
+            pitch="16000"
+        elif(button[DOWN_ARROW]==True):
+            pitch="16001"
+        else:
+            pitch="00000"
+                
+        if(button[BUTTON_SQUARE]==True):
+            gripper="16000"
+        elif(button[BUTTON_CROSS]==True):
+            gripper="16001"
+        else:
+            gripper="00000"
+            
+            
+        self.SendMsg("as"+str(swivel)+'o'+y_l+'t'+y_r+'r'+str(roll)+'p'+str(pitch)+'g'+str(gripper))
+        
+        
+        
+    def MotorMode(self):
+        
+        global gear
+        x_r=self.getValueXJoy(AXIS_RIGHT_STICK_X)
+        y_r=self.getValueYJoy(AXIS_RIGHT_STICK_Y)
+        x_r=x_r.zfill(5)
+        y_r=y_r.zfill(5)
+            
+        self.getGear()
+        self.SendMsg("m"+str(gear)+"s"+x_r+"f"+y_r+"n")
+            
+            
+        
+        
+    def SendMsg(self,msg):
+        comm.send(msg)
+        print(msg)
+        
+    # def DigitalTrain(self,b):
+    #     while(button[b]==True):
+            
+            
         
     def display(self):
-            os.system('cls')
-            # comm.send(str(axis[AXIS_LEFT_STICK_X]*8000))
-            # comm.send('ppppppppm')
-            # time.sleep(1)
-            
+        os.system('cls')
+            #gear=0
             # -1 cause DS4 values  are inverted
-            x=str(int(-1*axis[AXIS_RIGHT_STICK_X]*8000+8000))
-            y=str(int(-1*axis[AXIS_RIGHT_STICK_Y]*(8000)+8000))
-            # print(x)
-            x=x.zfill(5)
-            y=y.zfill(5)
-            # print(x)
-            self.x_axis.setText(x)
-            self.y_axis.setText(y)
+        x_r=self.getValueXJoy(AXIS_RIGHT_STICK_X)
+        y_r=self.getValueYJoy(AXIS_RIGHT_STICK_Y)
             
-            msg="m6s"+x+"f"+y+"n"
-            comm.send(msg)
-            print(msg)
-            # comm.send("m")
-
-            global c
-            c=self.camera_box.currentIndex()
+        x_l=self.getValueXJoy(AXIS_LEFT_STICK_X)
+        y_l=self.getValueYJoy(AXIS_LEFT_STICK_Y)
             
-            if(button[BUTTON_CIRCLE]==True):
-                
-                self.speak.emit("Current FUcked")   
-                
-            elif(button[BUTTON_CIRCLE]==False):
-                self.speak.emit("Current Bueno") 
-                
-            # print("Left stick X:", axis[AXIS_LEFT_STICK_X])
-            # print("Left stick Y:", axis[AXIS_LEFT_STICK_Y])
-            # print("Right stick X:", axis[AXIS_RIGHT_STICK_X])
-            # print("Right stick Y:", axis[AXIS_RIGHT_STICK_Y])
-            # print("L2 strength:", axis[AXIS_L2])
-            # print("R2 strength:", axis[AXIS_R2],"\n")
-            # # Buttons
-            # print("Square:", button[BUTTON_SQUARE])
-            # print("Cross:", button[BUTTON_CROSS])
-            # print("Circle:", button[BUTTON_CIRCLE])
-            # print("Triangle:", button[BUTTON_TRIANGLE])
-            # print("L1:", button[BUTTON_L1])
-            # print("R1:", button[BUTTON_R1])
-            # print("L2:", button[BUTTON_L2])
-            # print("R2:", button[BUTTON_R2])
-            # print("Share:", button[BUTTON_SHARE])
-            # print("Options:", button[BUTTON_OPTIONS])
-            # print("PS:", button[BUTTON_PS])
-            # print("Touch Pad:", button[BUTTON_PAD],"\n")
+            
+            # print(y_l)
+        global ARM_FLAG
+        if(self.debounce(BUTTON_CIRCLE)==True):
+            ARM_FLAG=ARM_FLAG^1
+            self.debounce(BUTTON_CIRCLE)
+        
+        
+        
+        if(ARM_FLAG==1):
+            print("ARM MODE...")
+            self.ArmMode()
+        elif(ARM_FLAG==0):
+            print("MOTOR MODE...")
+            self.MotorMode()
+        
+        
 
+        global c
+        c=self.camera_box.currentIndex()
+            
+        # if(button[BUTTON_CIRCLE]==True):
+        #     self.speak.emit("Current FUcked")   
+                
+        # elif(button[BUTTON_CIRCLE]==False):
+        #     self.speak.emit("Current Bueno") 
+            
+        self.x_axis.setText(x_r)
+        self.y_axis.setText(y_r)
+            
+        self.x_axis_2.setText(x_l)
+        self.y_axis_2.setText(y_l)
+        self.gear_label.setText(str(gear))
+            
 
-            # print("Press PS button to quit:", quit)
-
-            # Limited to 30 frames per second to make the display not so flashy
-            clock = pygame.time.Clock()
-            clock.tick(30) 
+        # Limited to 30 frames per second to make the display not so flashy                                                                                                                                                                                                   
+        clock = pygame.time.Clock()
+        clock.tick(30) 
     
     
-    def image(self):                
-        th=CameraThread(self)
-        th.changePixmap.connect(self.setImage)
-        th.start()
+    def image(self):     
+        
+        # self.th1=CameraThread('http://root:mrm@192.168.1.90/axis-cgi/mjpg/video.cgi?camera=4')
+        # self.th1.changePixmap.connect(self.setImage1)
+        # self.th1.start()
+
+        self.th2=CameraThread(0)
+        self.th2.changePixmap.connect(self.setImage2)
+        self.th2.start()
+        
+        
+        
+        # th2=CameraThread()
         a.screenshot.pressed.connect(CameraThread.TakeScreenshot)
         
     pyqtSlot(QImage)
-    def setImage(self,image):
+    def setImage1(self,image):
+        global c
+        c=1
         if(c == 1):
             a.main_camera.setPixmap(QPixmap.fromImage(image))
-        
+        print(self)
         a.camera_2.setPixmap(QPixmap.fromImage(image))
+        
+    pyqtSlot(QImage)
+    def setImage2(self,image):
+        global c
+        # c=1
+        # if(c == 1):
+        #     a.main_camera.setPixmap(QPixmap.fromImage(image))
+        # print(self)
+        a.camera_1.setPixmap(QPixmap.fromImage(image))
     
     pyqtSlot(str)
     def setTerminal(self,s):
